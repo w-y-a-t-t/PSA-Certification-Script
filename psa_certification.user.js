@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PSA Certification Lookup
 // @namespace    http://tampermonkey.net/
-// @version      0.2
+// @version      0.7
 // @description  Extracts PSA certification numbers from eBay listings and displays PSA price data
 // @author       You
 // @match        https://www.ebay.com/itm/*
@@ -190,8 +190,9 @@
     function checkIfPsaItem() {
         // Check for PSA indicators in the page
         
-        // Check for "Check PSA data" button
-        const psaDataButton = document.querySelector('button[data-clientpresentationmetadata*="CARD_INSIGHTS_PSA"]');
+        // Check for "Check PSA data" or "See all" button
+        const psaDataButton = document.querySelector('button[data-clientpresentationmetadata*="CARD_INSIGHTS_PSA"]') || 
+                              document.querySelector('button.fake-link[data-vi-tracking*="CLICK"]');
         if (psaDataButton) return true;
         
         // Check for PSA text in spans
@@ -219,21 +220,166 @@
         return false;
     }
 
+    // Helper function to validate if a number is likely a PSA certification number
+    function isLikelyPSACertNumber(number) {
+        // PSA cert numbers are typically 8-10 digits
+        if (!number || typeof number !== 'string') return false;
+        
+        // Check length - PSA cert numbers are typically 8-10 digits
+        // eBay item numbers are typically 12 digits
+        if (number.length < 8 || number.length > 10) return false;
+        
+        // Check if it's all digits
+        if (!/^\d+$/.test(number)) return false;
+        
+        // Avoid common eBay item ID patterns
+        // eBay item IDs often start with specific digits like 1, 2, 3, or 4
+        // and are typically 12 digits long
+        if (number.length === 12 && /^[1-4]\d{11}$/.test(number)) return false;
+        
+        return true;
+    }
+    
     function extractPSACertNumber() {
-        // Method -1: Check if there's a "Check PSA data" link and try to click it first
+        // Method -1: Check if there's a "Check PSA data" or "See all" link and try to click it first
         // Find elements containing "Check PSA data" text without using :contains selector
         let checkPsaDataLink = null;
         
         // First try to find by data attribute which is more reliable
         checkPsaDataLink = document.querySelector('button[data-clientpresentationmetadata*="CARD_INSIGHTS_PSA"]');
         
+        // If not found, look for the new "See all" button with fake-link class that's specifically for PSA data
+        if (!checkPsaDataLink) {
+            // Look for all fake-link buttons
+            const fakeLinks = document.querySelectorAll('button.fake-link[data-vi-tracking*="CLICK"]');
+            
+            // Find the one that's related to PSA certification
+            for (const link of fakeLinks) {
+                // Check if this button or its parent container has PSA-related text
+                const buttonText = link.textContent.toLowerCase();
+                const parentText = link.parentElement ? link.parentElement.textContent.toLowerCase() : '';
+                const grandparentText = link.parentElement && link.parentElement.parentElement ? 
+                                        link.parentElement.parentElement.textContent.toLowerCase() : '';
+                
+                if (buttonText.includes('psa') || 
+                    buttonText.includes('cert') || 
+                    buttonText.includes('grade') || 
+                    parentText.includes('psa') || 
+                    parentText.includes('cert') || 
+                    parentText.includes('grade') || 
+                    grandparentText.includes('psa') || 
+                    grandparentText.includes('cert') || 
+                    grandparentText.includes('grade')) {
+                    
+                    checkPsaDataLink = link;
+                    console.log('Found PSA-related fake-link button:', buttonText);
+                    break;
+                }
+                
+                // If the button says "See all" and is near PSA text, it's likely the right one
+                if (buttonText.includes('see all')) {
+                    // Check if there's PSA text nearby
+                    const nearbyElements = getNearbyElements(link, 3);
+                    for (const elem of nearbyElements) {
+                        const elemText = elem.textContent.toLowerCase();
+                        if (elemText.includes('psa') || elemText.includes('cert') || elemText.includes('grade')) {
+                            checkPsaDataLink = link;
+                            console.log('Found "See all" button near PSA text');
+                            break;
+                        }
+                    }
+                    if (checkPsaDataLink) break;
+                }
+            }
+        }
+        
+        // Helper function to get nearby elements
+        function getNearbyElements(element, depth) {
+            const result = [];
+            
+            // Add siblings
+            let sibling = element.previousElementSibling;
+            while (sibling) {
+                result.push(sibling);
+                sibling = sibling.previousElementSibling;
+            }
+            
+            sibling = element.nextElementSibling;
+            while (sibling) {
+                result.push(sibling);
+                sibling = sibling.nextElementSibling;
+            }
+            
+            // Add parent and its siblings if depth allows
+            if (depth > 0 && element.parentElement) {
+                result.push(element.parentElement);
+                result.push(...getNearbyElements(element.parentElement, depth - 1));
+            }
+            
+            return result;
+        }
+        
+        // Look for "See all" button specifically in item specifics section
+        if (!checkPsaDataLink) {
+            const itemSpecifics = document.querySelector('.ux-layout-section-evo--features');
+            if (itemSpecifics) {
+                const seeAllButtons = itemSpecifics.querySelectorAll('button.fake-link');
+                for (const button of seeAllButtons) {
+                    if (button.textContent.includes('See all')) {
+                        // Check if it's in a section related to grading or certification
+                        let parent = button.parentElement;
+                        let foundPSAContext = false;
+                        
+                        // Check up to 3 levels up for PSA context
+                        for (let i = 0; i < 3 && parent; i++) {
+                            const parentText = parent.textContent.toLowerCase();
+                            if (parentText.includes('psa') || 
+                                parentText.includes('cert') || 
+                                parentText.includes('grade') || 
+                                parentText.includes('authentication')) {
+                                foundPSAContext = true;
+                                break;
+                            }
+                            parent = parent.parentElement;
+                        }
+                        
+                        if (foundPSAContext) {
+                            checkPsaDataLink = button;
+                            console.log('Found "See all" button in PSA-related item specifics section');
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
         // If not found, look for spans with the right text
         if (!checkPsaDataLink) {
             const spans = document.querySelectorAll('.ux-textspans--INLINE_LINK, span');
             for (const span of spans) {
-                if (span.textContent.includes('Check PSA data')) {
-                    checkPsaDataLink = span;
-                    break;
+                if (span.textContent.includes('Check PSA data') || span.textContent.includes('See all')) {
+                    // Check if this span is in a PSA-related context
+                    let parent = span.parentElement;
+                    let foundPSAContext = false;
+                    
+                    // Check up to 3 levels up for PSA context
+                    for (let i = 0; i < 3 && parent; i++) {
+                        const parentText = parent.textContent.toLowerCase();
+                        if (parentText.includes('psa') || 
+                            parentText.includes('cert') || 
+                            parentText.includes('grade') || 
+                            parentText.includes('authentication')) {
+                            foundPSAContext = true;
+                            break;
+                        }
+                        parent = parent.parentElement;
+                    }
+                    
+                    if (foundPSAContext || span.textContent.includes('PSA')) {
+                        checkPsaDataLink = span;
+                        console.log('Found span with PSA-related text:', span.textContent);
+                        break;
+                    }
                 }
             }
         }
@@ -250,24 +396,43 @@
                     console.log('Checking for PSA cert number after clicking link');
                     
                     // After clicking, look for the cert number in the newly revealed content
-                    const certNumberAfterClick = findCertNumberInPage();
-                    if (certNumberAfterClick) {
-                        console.log('Found PSA cert after clicking:', certNumberAfterClick);
-                        
-                        // Close the modal/dialog after extracting the cert number
-                        closeModal();
-                        
-                        // Use the cert number to fetch PSA data
-                        fetchPSAData(certNumberAfterClick);
-                    } else {
-                        console.log('No PSA cert found after clicking link');
-                        
-                        // Close the modal/dialog even if no cert found
-                        closeModal();
-                        
-                        // If still not found, fall back to manual entry
-                        addManualCertEntryButton();
-                    }
+                    // Give more time for the modal to fully load and render
+                    setTimeout(function() {
+                        const certNumberAfterClick = findCertNumberInPage();
+                        if (certNumberAfterClick) {
+                            console.log('Found PSA cert after clicking:', certNumberAfterClick);
+                            
+                            // Close the modal/dialog after extracting the cert number
+                            closeModal();
+                            
+                            // Use the cert number to fetch PSA data
+                            fetchPSAData(certNumberAfterClick);
+                        } else {
+                            console.log('No PSA cert found after first attempt, trying again...');
+                            
+                            // Try one more time with a longer delay
+                            setTimeout(function() {
+                                const certNumberSecondAttempt = findCertNumberInPage();
+                                if (certNumberSecondAttempt) {
+                                    console.log('Found PSA cert on second attempt:', certNumberSecondAttempt);
+                                    
+                                    // Close the modal/dialog after extracting the cert number
+                                    closeModal();
+                                    
+                                    // Use the cert number to fetch PSA data
+                                    fetchPSAData(certNumberSecondAttempt);
+                                } else {
+                                    console.log('No PSA cert found after clicking link');
+                                    
+                                    // Close the modal/dialog even if no cert found
+                                    closeModal();
+                                    
+                                    // If still not found, fall back to manual entry
+                                    addManualCertEntryButton();
+                                }
+                            }, 1000); // Try again after another 1 second
+                        }
+                    }, 500); // Initial delay of 500ms
                     
                     // Helper function to close the modal/dialog
                     function closeModal() {
@@ -275,7 +440,7 @@
                             console.log('Attempting to close PSA data modal');
                             
                             // Method 1: Look for close buttons
-                            const closeButtons = document.querySelectorAll('button.close, .close-button, .modal-close, [aria-label="Close"]');
+                            const closeButtons = document.querySelectorAll('button.close, .close-button, .modal-close, [aria-label="Close"], button[aria-label*="close" i], button[class*="close" i]');
                             for (const button of closeButtons) {
                                 if (button.offsetParent !== null) { // Check if element is visible
                                     console.log('Found close button, clicking it');
@@ -285,7 +450,7 @@
                             }
                             
                             // Method 2: Look for X icons
-                            const closeIcons = document.querySelectorAll('.icon-close, .x-icon, svg[aria-label="Close"]');
+                            const closeIcons = document.querySelectorAll('.icon-close, .x-icon, svg[aria-label="Close"], svg[aria-label*="close" i], [data-testid*="close" i]');
                             for (const icon of closeIcons) {
                                 if (icon.offsetParent !== null) {
                                     console.log('Found close icon, clicking it');
@@ -320,7 +485,7 @@
                             console.log('Error while trying to close modal:', e);
                         }
                     }
-                }, 1000); // Give it 1 second to load
+                }, 1500); // Give it 1.5 seconds to load
                 
                 // Return null to prevent the rest of the function from executing
                 // The setTimeout callback will handle the cert number when found
@@ -360,20 +525,66 @@
         // Helper function to find cert number in page after clicking
         function findCertNumberInPage() {
             // Look for cert number in modal or popup that might appear
-            const modalTexts = document.querySelectorAll('.modal-content, .popup-content, .dialog-content, .psa-data');
+            // First, try to find the specific PSA certification modal
+            let psaModal = null;
+            const allModals = document.querySelectorAll('.modal-content, .popup-content, .dialog-content, .psa-data, [role="dialog"], [aria-modal="true"]');
+            
+            for (const modal of allModals) {
+                const modalText = modal.textContent.toLowerCase();
+                if (modalText.includes('psa') || 
+                    modalText.includes('certification') || 
+                    modalText.includes('graded') || 
+                    modalText.includes('authentication')) {
+                    psaModal = modal;
+                    console.log('Found PSA-related modal');
+                    break;
+                }
+            }
+            
+            // If we found a specific PSA modal, use that, otherwise check all modals
+            const modalTexts = psaModal ? [psaModal] : allModals;
+            
             for (const element of modalTexts) {
                 const text = element.textContent;
-                const certMatch = text.match(/Certification\s*#?\s*(\d{8,})/i) || 
-                                 text.match(/Cert\s*#?\s*(\d{8,})/i) ||
-                                 text.match(/Certificate\s*#?\s*(\d{8,})/i) ||
-                                 text.match(/PSA\s*#?\s*(\d{8,})/i);
+                
+                // First check for explicit certification number patterns
+                // PSA cert numbers are typically 8-10 digits
+                const certMatch = text.match(/Certification\s*#?\s*(\d{8,10})/i) || 
+                                 text.match(/Cert\s*#?\s*(\d{8,10})/i) ||
+                                 text.match(/Certificate\s*#?\s*(\d{8,10})/i) ||
+                                 text.match(/PSA\s*#?\s*(\d{8,10})/i) ||
+                                 text.match(/Authentication\s*#?\s*(\d{8,10})/i) ||
+                                 text.match(/Grading\s*Number\s*#?\s*(\d{8,10})/i);
                 if (certMatch && certMatch[1]) {
+                    console.log('Found explicit certification number pattern:', certMatch[1]);
                     return certMatch[1];
+                }
+                
+                // Check for certification number in a more structured way
+                // Look for sections that contain both "PSA" and a number
+                if (text.includes('PSA') || text.includes('Certification') || text.includes('Authentication')) {
+                    // Split the text into smaller chunks to analyze
+                    const chunks = text.split(/[\n\r\t]+/);
+                    for (const chunk of chunks) {
+                        // If chunk contains certification-related terms
+                        if (chunk.includes('PSA') || chunk.includes('Certification') || 
+                            chunk.includes('Authentication') || chunk.includes('Graded')) {
+                            // Look for 8-10 digit numbers in this chunk (typical PSA cert length)
+                            const numberMatch = chunk.match(/(\d{8,10})/);
+                            if (numberMatch && numberMatch[1]) {
+                                // Avoid eBay item numbers which are typically 12 digits
+                                if (numberMatch[1].length <= 10) {
+                                    console.log('Found certification number in relevant chunk:', numberMatch[1]);
+                                    return numberMatch[1];
+                                }
+                            }
+                        }
+                    }
                 }
             }
             
             // Check for newly appeared elements with the cert number
-            const newKeyValueElements = document.querySelectorAll('.key-value__value');
+            const newKeyValueElements = document.querySelectorAll('.key-value__value, [role="dialog"] span, [aria-modal="true"] span');
             for (const element of newKeyValueElements) {
                 const text = element.textContent.trim();
                 if (/^\d{8,}$/.test(text)) {
@@ -381,15 +592,209 @@
                 }
             }
             
+            // Try to find PSA certification number in structured content
+            // Look for elements that might contain certification info
+            const certElements = document.querySelectorAll('[role="dialog"] [class*="cert" i], [aria-modal="true"] [class*="cert" i], .modal-content [class*="cert" i], .dialog-content [class*="cert" i]');
+            
+            for (const element of certElements) {
+                const text = element.textContent.trim();
+                // Look for a standalone number that matches PSA cert pattern
+                const match = text.match(/(\d{8,10})/g);
+                if (match && match[0] && isLikelyPSACertNumber(match[0])) {
+                    console.log('Found PSA cert number in certification element:', match[0]);
+                    return match[0];
+                }
+            }
+            
+            // First, look for the exact PSA::PSACERT::number format
+            const modalElement = document.querySelector('[role="dialog"], [aria-modal="true"], .modal-content, .dialog-content');
+            if (modalElement) {
+                // Look for elements with data attributes that might contain the PSA cert ID
+                const allElements = modalElement.querySelectorAll('*');
+                for (const element of allElements) {
+                    // Check all attributes of the element
+                    for (const attr of element.attributes) {
+                        const attrValue = attr.value;
+                        // Look for the specific PSA::PSACERT:: format
+                        const psaMatch = attrValue.match(/PSA::PSACERT::([\d]+)/i);
+                        if (psaMatch && psaMatch[1] && isLikelyPSACertNumber(psaMatch[1])) {
+                            console.log('Found exact PSA::PSACERT:: format:', psaMatch[1]);
+                            return psaMatch[1];
+                        }
+                        
+                        // Also check for JSON-like strings that might contain the PSA cert
+                        if (attrValue.includes('PSA') && attrValue.includes('CERT')) {
+                            try {
+                                // Try to parse as JSON if it looks like JSON
+                                if (attrValue.includes('{') && attrValue.includes('}')) {
+                                    const jsonObj = JSON.parse(attrValue);
+                                    // Check various properties that might contain the cert
+                                    const jsonStr = JSON.stringify(jsonObj);
+                                    const psaJsonMatch = jsonStr.match(/PSA::PSACERT::([\d]+)/i);
+                                    if (psaJsonMatch && psaJsonMatch[1] && isLikelyPSACertNumber(psaJsonMatch[1])) {
+                                        console.log('Found PSA cert in JSON attribute:', psaJsonMatch[1]);
+                                        return psaJsonMatch[1];
+                                    }
+                                }
+                            } catch (e) {
+                                // Not valid JSON, try regex directly
+                                const psaAttrMatch = attrValue.match(/PSA::PSACERT::([\d]+)/i);
+                                if (psaAttrMatch && psaAttrMatch[1] && isLikelyPSACertNumber(psaAttrMatch[1])) {
+                                    console.log('Found PSA cert in attribute:', psaAttrMatch[1]);
+                                    return psaAttrMatch[1];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // If the specific format wasn't found, check the modal rows as before
+            const modalRows = document.querySelectorAll('[role="dialog"] tr, [aria-modal="true"] tr, .modal-content tr, .dialog-content tr');
+            for (const row of modalRows) {
+                const cells = row.querySelectorAll('td, th');
+                
+                // First check if this row contains certification-related text
+                const rowText = row.textContent.toLowerCase();
+                const isCertificationRow = rowText.includes('certification') || 
+                                          rowText.includes('cert') || 
+                                          rowText.includes('authentication') || 
+                                          rowText.includes('psa') || 
+                                          rowText.includes('graded');
+                
+                if (isCertificationRow) {
+                    // This row is likely related to certification, check all cells for a number
+                    for (const cell of cells) {
+                        const text = cell.textContent.trim();
+                        // Look for 8-10 digit numbers that are likely PSA cert numbers
+                        const certMatch = text.match(/(\d{8,10})/);
+                        if (certMatch && certMatch[1]) {
+                            // Avoid eBay item numbers which are typically 12 digits
+                            if (certMatch[1].length <= 10) {
+                                console.log('Found cert number in certification row:', certMatch[1]);
+                                return certMatch[1];
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // If we couldn't find a certification number in rows with cert-related text,
+            // look more carefully at the modal content
+            const modalContent = document.querySelector('[role="dialog"], [aria-modal="true"], .modal-content, .dialog-content');
+            if (modalContent) {
+                // Look for the PSA certification ID in the modal's HTML
+                const modalHtml = modalContent.innerHTML;
+                const psaHtmlMatch = modalHtml.match(/PSA::PSACERT::([\d]+)/i);
+                if (psaHtmlMatch && psaHtmlMatch[1] && isLikelyPSACertNumber(psaHtmlMatch[1])) {
+                    console.log('Found PSA cert ID in modal HTML:', psaHtmlMatch[1]);
+                    return psaHtmlMatch[1];
+                }
+                
+                // Get all text nodes in the modal
+                const textNodes = [];
+                const walker = document.createTreeWalker(
+                    modalContent,
+                    NodeFilter.SHOW_TEXT,
+                    null,
+                    false
+                );
+                
+                let node;
+                while (node = walker.nextNode()) {
+                    textNodes.push({
+                        node: node,
+                        text: node.textContent.trim()
+                    });
+                }
+                
+                // Look for nodes with certification-related text
+                for (const item of textNodes) {
+                    const text = item.text.toLowerCase();
+                    if (text.includes('certification') || text.includes('cert') || 
+                        text.includes('authentication') || text.includes('psa') || 
+                        text.includes('graded')) {
+                        
+                        // Check nearby nodes (within 5 positions) for numbers
+                        const index = textNodes.indexOf(item);
+                        const start = Math.max(0, index - 5);
+                        const end = Math.min(textNodes.length, index + 5);
+                        
+                        for (let i = start; i < end; i++) {
+                            const nearbyText = textNodes[i].text;
+                            const certMatch = nearbyText.match(/(\d{8,10})/);
+                            if (certMatch && certMatch[1]) {
+                                // Avoid eBay item numbers which are typically 12 digits
+                                if (certMatch[1].length <= 10) {
+                                    console.log('Found cert number near certification text:', certMatch[1]);
+                                    return certMatch[1];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
             // Check for any new elements containing digits that might be the cert
+            // but be more careful to avoid eBay listing IDs
             const allElements = document.querySelectorAll('*');
+            
+            // First, look for elements with certification-related context
             for (const element of allElements) {
                 if (element.children.length === 0) { // Only check leaf nodes
                     const text = element.textContent.trim();
                     if (/^\d{8,}$/.test(text)) {
-                        return text;
+                        // Check if this element has certification-related context
+                        let parent = element.parentElement;
+                        let depth = 0;
+                        const maxDepth = 3; // Check up to 3 levels up
+                        
+                        while (parent && depth < maxDepth) {
+                            const parentText = parent.textContent.toLowerCase();
+                            if (parentText.includes('psa') || 
+                                parentText.includes('cert') || 
+                                parentText.includes('authentication') || 
+                                parentText.includes('graded')) {
+                                console.log('Found number in certification context:', text);
+                                return text;
+                            }
+                            parent = parent.parentElement;
+                            depth++;
+                        }
                     }
                 }
+            }
+            
+            // If we still haven't found a cert number, be more selective
+            // Look for standalone numbers that are likely PSA cert numbers (usually 8-10 digits)
+            // but avoid common eBay patterns like item numbers
+            const potentialCertNumbers = [];
+            
+            for (const element of allElements) {
+                if (element.children.length === 0) { // Only check leaf nodes
+                    const text = element.textContent.trim();
+                    // Match standalone numbers with 8-10 digits (typical PSA cert length)
+                    if (/^\d{8,10}$/.test(text)) {
+                        // Avoid eBay item numbers which often appear with specific labels
+                        const parent = element.parentElement;
+                        if (parent) {
+                            const parentText = parent.textContent.toLowerCase();
+                            if (!parentText.includes('item') && 
+                                !parentText.includes('listing') && 
+                                !parentText.includes('ebay')) {
+                                potentialCertNumbers.push(text);
+                            }
+                        } else {
+                            potentialCertNumbers.push(text);
+                        }
+                    }
+                }
+            }
+            
+            // If we found potential cert numbers, return the first one
+            if (potentialCertNumbers.length > 0) {
+                console.log('Found potential cert number:', potentialCertNumbers[0]);
+                return potentialCertNumbers[0];
             }
             
             return null;
@@ -455,8 +860,49 @@
             }
         }
         
-        // Method 2: Look for "Check PSA data" link
-        const psaDataLink = document.querySelector('button[data-clientpresentationmetadata*="CARD_INSIGHTS_PSA"]');
+        // Method 2: Look for "Check PSA data" or "See all" link
+        const psaDataLink = document.querySelector('button[data-clientpresentationmetadata*="CARD_INSIGHTS_PSA"]') || 
+                           document.querySelector('button.fake-link[data-vi-tracking*="CLICK"]');
+        
+        // Method 2.1: Try to extract PSA cert ID directly from data attributes
+        if (!psaDataLink) {
+            // Look for elements with data attributes that might contain PSA certification info
+            const allElements = document.querySelectorAll('*[data-*]');
+            for (const element of allElements) {
+                // Check all attributes of the element
+                for (const attr of element.attributes) {
+                    if (attr.name.startsWith('data-')) {
+                        const attrValue = attr.value;
+                        // Look for the specific PSA::PSACERT:: format
+                        const psaMatch = attrValue.match(/PSA::PSACERT::([\d]+)/i);
+                        if (psaMatch && psaMatch[1]) {
+                            console.log('Found PSA cert ID in data attribute:', psaMatch[1]);
+                            fetchPSAData(psaMatch[1]);
+                            return psaMatch[1];
+                        }
+                        
+                        // Check if attribute value might be JSON
+                        if (attrValue.includes('{') && attrValue.includes('}') && 
+                            (attrValue.includes('PSA') || attrValue.includes('cert'))) {
+                            try {
+                                // Try to parse as JSON
+                                const jsonObj = JSON.parse(attrValue);
+                                // Convert to string for easier searching
+                                const jsonStr = JSON.stringify(jsonObj);
+                                const psaJsonMatch = jsonStr.match(/PSA::PSACERT::([\d]+)/i);
+                                if (psaJsonMatch && psaJsonMatch[1]) {
+                                    console.log('Found PSA cert ID in JSON data attribute:', psaJsonMatch[1]);
+                                    fetchPSAData(psaJsonMatch[1]);
+                                    return psaJsonMatch[1];
+                                }
+                            } catch (e) {
+                                // Not valid JSON, continue
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if (psaDataLink) {
             // The link exists, but we need to extract the cert number from somewhere else
             // This is just a marker that this is a PSA graded item
@@ -514,6 +960,14 @@
             }
             
             return elements;
+        }
+        
+        // Method 4.1: Look for the specific PSA::PSACERT:: format in the page HTML
+        const pageHtml = document.documentElement.innerHTML;
+        const psaPageMatch = pageHtml.match(/PSA::PSACERT::([\d]+)/i);
+        if (psaPageMatch && psaPageMatch[1] && isLikelyPSACertNumber(psaPageMatch[1])) {
+            console.log('Found PSA cert ID in page HTML:', psaPageMatch[1]);
+            return psaPageMatch[1];
         }
         
         const psaMentions = findElementsContainingText('PSA');
@@ -640,7 +1094,7 @@
                                 
                                 displayPSAData(psaData);
                             } else {
-                                displayError(`Failed to fetch PSA data. Status: ${response.status}. Please verify the certification number is correct.`);
+                                displayError(`Failed to fetch PSA data. Status: ${response.status}. The number ${certNumber} might be an eBay item ID rather than a PSA certification number. Please verify the certification number is correct.`);
                             }
                         },
                         onerror: function(altError) {
