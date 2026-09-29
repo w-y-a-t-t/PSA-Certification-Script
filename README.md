@@ -1,285 +1,57 @@
-# PSA Certification Script
+# eBay Price Guide Insights
 
-![Price Guide insights panel on an eBay listing](Example.png)
+![Price Guide insights panel on an eBay listing](price-guide-example.png)
 
-Browser userscripts for eBay listings of graded sports cards. They are independent, so you can install either one or both.
-
-| Script | What it does |
-| --- | --- |
-| [`psa_certification.user.js`](psa_certification.user.js) | Finds the PSA cert number on the listing and shows PSA certification data, population and price estimates, compared with the listing price |
-| [`ebay_price_guide.user.js`](ebay_price_guide.user.js) | Shows the stats from eBay's Price Guide "See insights" modal in a panel on the listing page: median sold, trend, grade comparison and recent sales. See [eBay Price Guide Insights](#ebay-price-guide-insights) |
-
-The rest of this section covers the PSA Certification script.
+A browser userscript for eBay trading card listings. eBay's **Price Guide** only shows its stats in a modal behind a "See insights" button. This script puts those stats in a panel on the listing page, so you never have to open the modal.
 
 ## Features
 
-### Core Functionality
-- **Automatic Detection**: Intelligently finds PSA certification numbers on eBay listings using multiple methods
-- **Smart Data Extraction**: Fetches and parses card data from the PSA website
-- **Comprehensive Information Display**: Shows card details, grade, population data, and price estimates
-- **Price Comparison**: Analyzes the eBay listing price against PSA's estimated value
-- **Visual Recommendations**: Color-coded indicators show if a listing is overpriced or a good deal
-
-### Advanced Features
-- **Modal Interaction**: Automatically clicks "Check PSA data" buttons and extracts information
-- **Modal Auto-Close**: Closes PSA data modals after extracting the necessary information
-- **Manual Entry Option**: Allows entry of PSA certification numbers if automatic detection fails
-- **Direct PSA Link**: Provides a link to the official PSA certification page
-
-### Caching System
-- **Data Caching**: Stores PSA data locally to improve performance and reduce server load
-- **Cache Management UI**: Interface for viewing and managing cached data
-- **Cache Expiration**: Automatically expires cached data after a configurable period
-- **Cache Size Control**: Limits cache size and removes oldest entries when needed
-
-### User Experience
-- **Responsive Design**: Works well on different screen sizes and eBay layouts
-- **Loading Indicators**: Shows loading state while fetching PSA data
-- **Error Handling**: Provides helpful feedback if data cannot be retrieved
-- **Customizable Settings**: Configure cache duration and other preferences
+- **Key stats**: median sold price, number sold, last sold price and date, sold price range, number of sellers, and the raw (ungraded) median for the card
+- **This listing vs. median**: how far the listing price is from the median, color coded:
+  - 🟢 more than 5% below the median
+  - 🔵 within 5% of the median
+  - 🟠 5–20% above
+  - 🔴 more than 20% above
+- **Weekly trend chart**: median sold price by week, with sold-per-week bars (weeks with no sales are skipped)
+- **Compare grades**: median, price range, and sold count for every grade from each grading company (PSA, BGS, CGC, SGC), with the listing's grade highlighted
+- **Recent sales**: the latest sold listings, with links, sale format, and shipping cost
+- **Full view** button to open eBay's own insights modal
+- **Hide/Show** toggle that is remembered between pages
 
 ## Installation
 
 1. Install a userscript manager extension for your browser:
    - [Tampermonkey](https://www.tampermonkey.net/) (recommended)
-   - [Greasemonkey](https://www.greasespot.net/) (Firefox)
    - [Violentmonkey](https://violentmonkey.github.io/)
-
-2. Install each script you want (`psa_certification.user.js` and/or `ebay_price_guide.user.js`) by:
-   - Opening the raw `.user.js` file and clicking "Install" when prompted by your userscript manager
-   - Or copying the file's contents into a new script in your userscript manager
+   - [Greasemonkey](https://www.greasespot.net/) (Firefox)
+2. Install the script by either:
+   - opening the raw [`ebay_price_guide.user.js`](ebay_price_guide.user.js) file and clicking "Install" when your userscript manager asks, or
+   - copying the file's contents into a new script in your userscript manager.
 
 ## Usage
 
-### Automatic Detection
+Open any eBay listing (`https://www.ebay.com/itm/...`) that shows a **Price Guide** row. The panel appears under the Price Guide / Grade / Pop row, or under the price if that row isn't on the page. Listings without Price Guide data are left unchanged.
 
-1. Browse to any eBay listing for a PSA-graded card
-2. The script will automatically:
-   - Detect the PSA certification number from various locations on the page
-   - If needed, click on "Check PSA data" buttons to reveal the certification number
-   - Fetch data from the PSA website (or use cached data if available)
-   - Display the information in a panel on the eBay page
-   - Compare the eBay listing price with PSA's estimated value
+## How it works
 
-### Manual Entry
+The "See insights" modal loads its data from a same-origin eBay endpoint:
 
-If the script cannot automatically detect the PSA certification number:
+```
+https://www.ebay.com/wcs/get-market-data/listing-id?listingid=<listing id>
+```
 
-1. A "Look Up" button will appear in a PSA data panel
-2. Enter the PSA certification number (typically 8-10 digits found on the PSA label)
-3. Click "Look Up" or press Enter
-4. The script will fetch and display the PSA data
+The script calls that endpoint directly with `fetch` when the page loads, then builds the panel from the JSON response:
 
-### Cache Management
-
-The script includes a caching system to improve performance:
-
-1. PSA data is cached locally for 7 days by default
-2. Cached items are indicated with a "Cached" badge
-3. Use the "🔄 Refresh" button to force a fresh fetch from PSA
-4. Click the "⚙️ Cache" button to:
-   - View when data was cached and when it expires
-   - Clear all cached data
-
-## How It Works
-
-The script performs several sophisticated operations:
-
-### 1. Initialization and Detection
-
-- **Page Load Detection**: Waits for the eBay page to fully load before initializing
-- **PSA Item Identification**: Checks if the listing is for a PSA-graded item before proceeding
-- **Certification Number Detection**:
-  - **Method 1**: Checks for key-value pairs containing certification numbers
-  - **Method 2**: Looks for "Check PSA data" buttons and clicks them to reveal hidden data
-  - **Method 3**: Searches item specifics sections for PSA certification numbers
-  - **Method 4**: Examines title and description for certification numbers
-  - **Method 5**: Uses a TreeWalker to find text containing PSA certification numbers
-  - **Fallback**: Provides manual entry button if automatic detection fails
-
-### 2. Data Retrieval and Caching
-
-- **Cache Check**: First checks local cache for previously fetched data for the certification number
-- **Cache Hit**: If found and not expired, uses cached data without making network requests
-- **Cache Miss**: If not in cache or expired, proceeds with network request
-- **Network Request**: Makes a request to the PSA website using the certification number
-  - Uses primary URL format: `https://www.psacard.com/cert/{certNumber}/psa`
-  - Falls back to alternative URL format if primary fails
-- **Cross-Origin Handling**: Uses GM_xmlhttpRequest to bypass same-origin policy restrictions
-- **Cache Storage**: Stores successfully fetched data in cache with timestamp and expiration
-- **Cache Management**: Automatically cleans up old entries if cache size limit is reached
-
-### 3. Data Extraction
-
-- **HTML Parsing**: Uses DOMParser to convert raw HTML into a navigable document
-- **Card Name Extraction**: 
-  - Uses multiple selectors to find the card name
-  - Falls back to generic approach for uppercase text that matches card name patterns
-- **Grade Extraction**: 
-  - Tries multiple selectors to find the grade
-  - Falls back to text pattern matching if selectors fail
-- **Price Data Extraction**:
-  - Looks for price tables and extracts grade-to-price mappings
-  - Falls back to searching for price elements with specific classes
-  - As last resort, looks for currency patterns in relevant contexts
-- **Population Data Extraction**:
-  - Specifically targets links with format `<a class="text-hyperlink" data-testid="link" href="/pop/">`
-  - Uses multiple fallback methods to find population counts
-  - Employs proximity scoring to identify numbers likely to be population counts
-
-### 4. Price Analysis and Comparison
-
-- **eBay Price Detection**: 
-  - Locates and extracts the current listing price
-  - Handles different currency formats (US, European)
-- **Grade Matching**: 
-  - Identifies the current card's grade from multiple sources
-  - Matches it with corresponding PSA price data
-- **Difference Calculation**:
-  - Computes absolute price difference
-  - Calculates percentage difference relative to PSA value
-- **Recommendation Generation**:
-  - Categorizes listings as significantly overpriced (>20%), moderately overpriced (5-20%), 
-    slightly higher, fairly priced, or good deal (below PSA value)
-  - Provides color-coded recommendations based on the analysis
-
-### 5. User Interface and Display
-
-- **Data Container**: Creates a clean, formatted panel for displaying PSA data
-- **Loading Indicators**: Shows spinner while fetching data
-- **Information Sections**:
-  - Card details section with name, certification number, and grade
-  - Price data section with table of grade-to-price mappings
-  - Population data section showing population counts
-  - Price comparison section with analysis and recommendations
-- **Cache Management UI**:
-  - "Cached" badge for data loaded from cache
-  - Refresh button to force fresh data fetch
-  - Cache settings dropdown with timestamp information
-  - Option to clear all cached data
-- **Error Handling**: 
-  - Displays user-friendly error messages
-  - Provides retry button for failed requests
-- **Strategic Placement**: 
-  - Inserts the PSA data panel in optimal locations on the eBay page
-  - Adapts to different eBay page layouts
-
-## Technical Details
-
-### Certification Number Detection
-
-- **Multiple Detection Methods**: Uses five different techniques to find certification numbers
-- **Key-Value Detection**: Specifically targets certification numbers in key-value pairs
-- **Modal Interaction**: Automatically clicks "Check PSA data" buttons and extracts information
-- **Context-Aware Search**: Looks for certification numbers in relevant contexts (near PSA mentions)
-- **TreeWalker Implementation**: Uses efficient DOM traversal to find text nodes containing certification numbers
-- **Regex Patterns**: Employs multiple regex patterns to identify different certification number formats
-
-### Data Extraction Techniques
-
-- **Multi-Selector Approach**: Tries multiple CSS selectors for each data element to handle website changes
-- **Fallback Chain**: Implements cascading fallback methods for each data type
-- **Currency Format Handling**: Properly parses different price formats (US, European)
-- **Grade Detection**: Intelligently identifies the card's grade from multiple sources
-- **Population Data Extraction**: Specifically targets population counts in various formats
-- **Card Name Recognition**: Identifies card names in uppercase text and other formats
-- **Proximity Scoring**: Ranks potential data elements by their proximity to relevant keywords
-
-### Caching System Architecture
-
-- **Local Storage**: Uses Tampermonkey's GM_setValue/GM_getValue API for persistent caching
-- **Cache Entry Structure**: Stores data with metadata including timestamp and expiration
-- **Expiration Control**: Automatically expires cached data after a configurable period (default: 7 days)
-- **Size Management**: Limits cache size and removes oldest entries when needed
-- **Cache Cleanup**: Performs automatic cleanup when adding new items to prevent excessive storage use
-- **User Controls**: Provides UI for viewing cache status and clearing cache
-- **Cache Indicators**: Visually indicates when data is loaded from cache
-
-### User Interface Components
-
-- **Responsive Design**: Works well on different screen sizes and eBay layouts
-- **Visual Indicators**: Shows cached status, price comparisons, and recommendations
-- **Loading Animation**: Displays animated spinner while fetching data
-- **Error Handling**: Provides helpful feedback if data cannot be retrieved
-- **Modal Management**: Automatically closes modals after extracting data
-- **Strategic Placement**: Inserts UI elements in optimal locations based on page structure
-- **Dropdown Menus**: Implements custom dropdown menu for cache settings
-- **Event Handling**: Properly manages click events and document-level event listeners
-
-### Error Handling and Debugging
-
-- **Comprehensive Logging**: Includes detailed console logging for troubleshooting
-- **Graceful Degradation**: Falls back to simpler methods when advanced methods fail
-- **Try-Catch Blocks**: Wraps critical operations in try-catch blocks to prevent script crashes
-- **User Feedback**: Provides clear error messages to users when issues occur
-- **Retry Mechanism**: Includes retry button for failed requests
-- **Alternative URL Formats**: Tries alternative URL formats when primary requests fail
-
-### Performance Optimizations
-
-- **Caching**: Reduces network requests through local data caching
-- **Selective DOM Traversal**: Limits DOM traversal to relevant sections of the page
-- **Efficient Selectors**: Uses specific CSS selectors to quickly find elements
-- **Delayed Initialization**: Waits for page to fully load before running intensive operations
-- **Throttled Operations**: Spaces out operations to avoid affecting page responsiveness
-- **Resource Cleanup**: Properly removes event listeners and temporary elements
-
-## Troubleshooting
-
-- **No PSA Data Appears**: The script may not have found a valid certification number. Use the manual entry option.
-- **Price Comparison Missing**: The script might not be able to determine the card's grade or match it with PSA data.
-- **Data Looks Incorrect**: PSA's website structure may have changed. Try using the "Refresh" button to bypass the cache.
-- **Script Not Working**: Check the browser console for error messages. The script includes extensive logging.
-
-## Limitations
-
-- The script relies on the structure of eBay and PSA websites, which may change over time
-- Price estimates from PSA may not always be available for all cards
-- The script requires permission to make cross-origin requests to the PSA website
-- Some eBay listings may use non-standard formats that the script cannot parse
-
-## Privacy and Security
-
-- The PSA Certification script only accesses data on eBay listings and the PSA website
-- The Price Guide script only makes requests to eBay itself, and only stores its Hide/Show preference
-- Cached data is stored locally in your browser and is not shared
-- No data is collected, stored, or transmitted to any third parties
-- The script runs entirely in your browser
+| Panel section | Source in the response |
+| --- | --- |
+| Median sold, sold count | This grade's `priceGuidance` under `priceGuidanceByGradingCompany` |
+| Sold range, sellers, trend, recent sales | `priceGuidance` (`recommendations`, `meta`, `metricsTrends`, `listings`) |
+| Raw (ungraded) | `priceGuidanceByUngradedCondition` |
+| This item's grader and grade | The listing's `itemCondition` descriptors |
 
 ## Configuration
 
-Advanced users can modify these settings at the top of the script:
-
-```javascript
-// Cache configuration
-const CACHE_CONFIG = {
-    // Cache expiration time in milliseconds (default: 7 days)
-    expirationTime: 7 * 24 * 60 * 60 * 1000,
-    
-    // Maximum number of items to keep in cache
-    maxItems: 100,
-    
-    // Cache key prefix
-    keyPrefix: 'psa_cert_data_'
-};
-```
-
-## eBay Price Guide Insights
-
-`ebay_price_guide.user.js` is a separate userscript for eBay's trading card **Price Guide**. It shows the stats from the "See insights" modal in a panel on the listing page, so you don't have to click anything.
-
-### What it shows
-- **Median sold price**, number sold, last sold price and date, sold price range, number of sellers, and the raw (ungraded) median for the card
-- **This listing vs. median**: the price difference, color coded: green if more than 5% below the median, blue within 5%, amber 5–20% above, red more than 20% above
-- **Weekly trend chart**: median sold price by week, with sold-per-week bars (weeks with no sales are skipped)
-- **Compare grades**: median, range, and sold count for every grade from each grading company (PSA, BGS, CGC, SGC), with the listing's grade highlighted
-- **Recent sales**: the latest sold listings, with links, format, and shipping cost
-- A **Full view** button that opens eBay's own insights modal, and a **Hide/Show** toggle that is remembered between pages
-
-### How it works
-The modal gets its data from a same-origin endpoint, `https://www.ebay.com/wcs/get-market-data/listing-id?listingid=<id>`. The script calls that endpoint directly with `fetch`, so it needs no special grants. It inserts the panel under the Price Guide / Grade / Pop row, or under the price if that row isn't on the page. If a listing has no Price Guide data, the script does nothing.
-
-### Configuration
+These settings are at the top of the script:
 
 ```javascript
 const CONFIG = {
@@ -300,20 +72,26 @@ const CONFIG = {
 };
 ```
 
-### Troubleshooting and limitations
-- **No panel appears**: the listing probably has no Price Guide data (usually a non-card or an uncatalogued card). Check the console for `[PG Insights]` messages.
-- The endpoint is undocumented and may change or disappear without notice. If it does, the panel just won't show.
-- The listing price comparison assumes USD, which is what ebay.com listings show.
+## Troubleshooting
 
-## Contributing
+- **No panel appears**: the listing probably has no Price Guide data (for example, a non-card item or a card eBay hasn't catalogued). Open the browser console and look for `[PG Insights]` messages.
+- **Numbers look different from the modal**: click **Full view** to compare. Both read the same data, so a mismatch probably means eBay has changed the response format.
 
-Feel free to submit issues or pull requests if you find bugs or have suggestions for improvements. Areas for potential enhancement include:
+## Limitations
 
-- Additional detection methods for certification numbers
-- Support for other grading companies (BGS, SGC, etc.)
-- Enhanced price history and trend analysis
-- Mobile optimization
-- User preferences interface
+- The endpoint is undocumented and may change or disappear without notice. If it does, the panel won't appear.
+- Only `www.ebay.com` listings are supported, and the listing price comparison assumes USD.
+
+## Privacy and security
+
+- The script only makes requests to eBay, the same request the "See insights" button makes. It needs no special userscript permissions (`@grant none`).
+- The only thing it stores is the Hide/Show preference, in your browser's `localStorage`.
+- No data is collected or sent to any third party.
+- Listing text from eBay is HTML-escaped before it is displayed.
+
+## History
+
+This repo started as the **PSA Certification Script** (`psa_certification.user.js`), which scraped PSA's website for cert data and price estimates. It no longer works as expected, so this script has replaced it. The old version is still in the git history.
 
 ## License
 
