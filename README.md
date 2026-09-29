@@ -1,8 +1,15 @@
 # PSA Certification Script
 
-![Example of PSA Certification Script in action](Example.png)
+![Price Guide insights panel on an eBay listing](Example.png)
 
-A browser userscript that enhances eBay listings for PSA-graded sports cards by fetching and displaying PSA certification data and price estimates.
+Browser userscripts for eBay listings of graded sports cards. They are independent, so you can install either one or both.
+
+| Script | What it does |
+| --- | --- |
+| [`psa_certification.user.js`](psa_certification.user.js) | Finds the PSA cert number on the listing and shows PSA certification data, population and price estimates, compared with the listing price |
+| [`ebay_price_guide.user.js`](ebay_price_guide.user.js) | Shows the stats from eBay's Price Guide "See insights" modal in a panel on the listing page: median sold, trend, grade comparison and recent sales. See [eBay Price Guide Insights](#ebay-price-guide-insights) |
+
+The rest of this section covers the PSA Certification script.
 
 ## Features
 
@@ -38,9 +45,9 @@ A browser userscript that enhances eBay listings for PSA-graded sports cards by 
    - [Greasemonkey](https://www.greasespot.net/) (Firefox)
    - [Violentmonkey](https://violentmonkey.github.io/)
 
-2. Install the script by:
-   - Opening the raw `psa_certification.user.js` file and clicking "Install" when prompted by your userscript manager
-   - Or copying the content of `psa_certification.user.js` and creating a new script in your userscript manager
+2. Install each script you want (`psa_certification.user.js` and/or `ebay_price_guide.user.js`) by:
+   - Opening the raw `.user.js` file and clicking "Install" when prompted by your userscript manager
+   - Or copying the file's contents into a new script in your userscript manager
 
 ## Usage
 
@@ -233,7 +240,8 @@ The script performs several sophisticated operations:
 
 ## Privacy and Security
 
-- This script only accesses data on eBay listings and the PSA website
+- The PSA Certification script only accesses data on eBay listings and the PSA website
+- The Price Guide script only makes requests to eBay itself, and only stores its Hide/Show preference
 - Cached data is stored locally in your browser and is not shared
 - No data is collected, stored, or transmitted to any third parties
 - The script runs entirely in your browser
@@ -255,6 +263,47 @@ const CACHE_CONFIG = {
     keyPrefix: 'psa_cert_data_'
 };
 ```
+
+## eBay Price Guide Insights
+
+`ebay_price_guide.user.js` is a separate userscript for eBay's trading card **Price Guide**. It shows the stats from the "See insights" modal in a panel on the listing page, so you don't have to click anything.
+
+### What it shows
+- **Median sold price**, number sold, last sold price and date, sold price range, number of sellers, and the raw (ungraded) median for the card
+- **This listing vs. median**: the price difference, color coded: green if more than 5% below the median, blue within 5%, amber 5–20% above, red more than 20% above
+- **Weekly trend chart**: median sold price by week, with sold-per-week bars (weeks with no sales are skipped)
+- **Compare grades**: median, range, and sold count for every grade from each grading company (PSA, BGS, CGC, SGC), with the listing's grade highlighted
+- **Recent sales**: the latest sold listings, with links, format, and shipping cost
+- A **Full view** button that opens eBay's own insights modal, and a **Hide/Show** toggle that is remembered between pages
+
+### How it works
+The modal gets its data from a same-origin endpoint, `https://www.ebay.com/wcs/get-market-data/listing-id?listingid=<id>`. The script calls that endpoint directly with `fetch`, so it needs no special grants. It inserts the panel under the Price Guide / Grade / Pop row, or under the price if that row isn't on the page. If a listing has no Price Guide data, the script does nothing.
+
+### Configuration
+
+```javascript
+const CONFIG = {
+    // Same-origin endpoint the "See insights" modal loads its data from
+    marketDataUrl: '/wcs/get-market-data/listing-id?listingid=',
+
+    // Give up on the market data request after this long (ms)
+    requestTimeout: 15000,
+
+    // Number of recent sales to show
+    recentSalesLimit: 5,
+
+    // How long to wait for the listing's right-hand panel to render (ms)
+    anchorTimeout: 10000,
+
+    // localStorage key for remembering the collapsed state
+    collapsedKey: 'ebay_pg_insights_collapsed'
+};
+```
+
+### Troubleshooting and limitations
+- **No panel appears**: the listing probably has no Price Guide data (usually a non-card or an uncatalogued card). Check the console for `[PG Insights]` messages.
+- The endpoint is undocumented and may change or disappear without notice. If it does, the panel just won't show.
+- The listing price comparison assumes USD, which is what ebay.com listings show.
 
 ## Contributing
 
